@@ -1,0 +1,49 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+build/
+dist/
+.mypy_cache/
+.pytest_cache/
+.coverage
+.cache/
+
+# === Virtual environments ===
+.venv/
+venv/
+env/
+ENV/
+
+# === Environment / secrets ===
+.env
+.env.*
+*.env
+
+# === Logs & state ===
+logs.jsonl
+conversation.json
+
+# === MCP working directory (artifacts created by tools) ===
+work/**
+!work/.gitkeep
+
+# === Editors / OS files ===
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# === Node (in case you later add JS tooling) ===
+node_modules/
+
+# === Captures / reports (Wireshark, etc.) ===
+*.pcap
+*.pcapng
+captures/

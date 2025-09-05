@@ -1,0 +1,5 @@
+{
+  "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "./work"] },
+  "git": { "command": ".\\.venv\\Scripts\\python.exe", "args": ["-m", "mcp_server_git", "--repository", ".\\work"] },
+  "local": { "command": ".\\.venv\\Scripts\\python.exe", "args": ["servers/my_local_srv.py"] }
+}
