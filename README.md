@@ -1,250 +1,183 @@
-# Proyecto 1 — Chatbot (Host) con MCP + Gemini
+# MCP Host
 
-Implementación de un **chatbot en consola** que actúa como **anfitrión MCP** y se conecta a:
-- Un **LLM gratuito** (Google **Gemini**).
-- Servidores MCP **oficiales** locales: **Filesystem** y **Git**.
-- Un **servidor MCP local** propio (`servers/my_local_srv.py`) con herramientas no triviales.
+Este proyecto implementa un **chatbot con integración a servidores MCP** que permite interactuar con distintas herramientas (SQL, sistema de archivos, Git y Supabase) desde lenguaje natural.  
 
-Cumple con los puntos 1–5 de la **Primera Parte** del enunciado.
+La motivación es cumplir con la rúbrica del curso de Redes sobre el uso de **Model Context Protocol (MCP)**, demostrando cómo un asistente puede coordinar múltiples servidores MCP locales y remotos.
 
 ---
 
-## Tabla de contenido
-- [Arquitectura](#arquitectura)
-- [Requisitos](#requisitos)
-- [Instalación](#instalación)
-- [Configuración (.env)](#configuración-env)
-- [Servidores MCP](#servidores-mcp)
-- [Ejecución](#ejecución)
-- [Comandos disponibles en el chat](#comandos-disponibles-en-el-chat)
-- [Demostración FS + Git](#demostración-fs--git)
-- [Servidor MCP local (CFG Tools)](#servidor-mcp-local-cfg-tools)
-- [Memoria y Log](#memoria-y-log)
-- [Estructura del proyecto](#estructura-del-proyecto)
-- [Solución de problemas](#solución-de-problemas)
+##  Funcionalidades principales
+
+1. **Host de Chat** (`src/host.py`):
+   - Chat interactivo en consola con OpenAI como motor LLM.
+   - Soporte para **tool calling** (el modelo invoca herramientas cuando corresponde).
+   - Memoria de la conversación y logging en JSONL.
+   - **Carga automática de tools remotas de Supabase** si el servidor remoto está corriendo.
+
+2. **Servidores MCP integrados**:
+   - **SQLScout (local)**  
+     - Diagnóstico de queries SQL.  
+     - `EXPLAIN QUERY PLAN`.  
+     - Recomendaciones de índices y optimizaciones.  
+     - Aplicar índices (`CREATE INDEX`) directamente sobre SQLite.
+   - **Filesystem (FS)**  
+     - Crear, leer, editar y listar archivos dentro del `WORKSPACE_ROOT`.  
+   - **Git**  
+     - Inicializar repositorios.  
+     - Agregar y commitear archivos.  
+     - Consultar `git status` y `git log`.  
+   - **Supabase Admin Helper (remoto)**  
+     - Crear y listar usuarios.  
+     - Obtener info de un usuario por ID.  
+     - Actualizar `user_metadata`.  
+     - Eliminar usuarios.  
+     - Enviar magic links y correos de reset de contraseña.  
+     - Obtener estadísticas de usuarios.  
+     - Invitar usuarios en lote.
+     
+3. **Wrappers amigables**:
+   - Se implementaron herramientas de alto nivel como:
+     - `fs_write_text(relative_path, content)`
+     - `git_commit_msg(message)`
+   - El usuario puede usar lenguaje natural sin preocuparse por comandos técnicos.  
+---
+
+##  ¿Por qué lo hicimos así?
+
+Existen dos caminos para integrar MCP:
+
+- **SDK oficial (Anthropic MCP)**: abstrae toda la conexión, detecta tools automáticamente y las expone al modelo.  
+- **Flujo manual (nuestro enfoque con OpenAI)**: definimos un catálogo de tools (`OPENAI_TOOLS`) y las enrutamos hacia `MCPClient` personalizado.
+
+Elegimos el flujo manual porque:
+- Permite usar **OpenAI** como motor (no solo Claude).  
+- Tenemos control explícito de qué herramientas exponer y cómo encadenarlas.  
+- Es más transparente para fines académicos (se entiende cada paso del plumbing).  
+- Nos permitió añadir wrappers amigables (`fs_write_text`, `git_commit_msg`) que no vienen listos en el SDK.
+
+ En resumen: nuestro host **traduce manualmente entre OpenAI y MCP**, logrando la misma funcionalidad que el SDK oficial, pero con más flexibilidad.
 
 ---
 
-## Arquitectura
+##  Estructura del repo
 
 ```
-[Usuario CLI] ──> Host (app/client.py, Gemini) ── usa ──┐
-                                                        ├─ MCP Filesystem (npx)
-                                                        ├─ MCP Git (python -m mcp_server_git)
-                                                        └─ MCP Local (servers/my_local_srv.py)
+MCP HOST/
+├── logs/                     # Logs de interacción
+├── src/
+│   ├── host.py               # Chat host principal (OpenAI + MCP)
+│   ├── mcp_client.py         # Cliente simple para servidores MCP
+│   ├── memory.py             # Memoria de la conversación
+│   ├── logging_middleware.py # Logger en formato JSONL
+│   └── __init__.py
+├── mcp_config.json           # Configuración de servers MCP
+├── .env.example              # Variables de entorno (ejemplo)
+├── requirements.txt          # Dependencias Python
+└── README.md                 # Este archivo
 ```
 
-- El **host** mantiene **conexiones persistentes** a cada servidor MCP.
-- Convierte las **tools MCP** a **function declarations** para el LLM.
-- Guarda **memoria de conversación** y **logs** de llamadas MCP.
+---
+
+##  Instalación
+
+1. **Clonar el repo**
+   ```bash
+   git clone <url-del-repo>
+   cd MCP\ HOST
+   ```
+
+2. **Crear entorno y dependencias**
+   ```bash
+   python -m venv venv
+   source venv/Scripts/activate   # Windows
+   pip install -r requirements.txt
+   ```
+
+3. **Instalar servers MCP oficiales**
+   - Filesystem:
+     ```bash
+     npx -y @modelcontextprotocol/server-filesystem --root "C:/ruta/del/workspace"
+     ```
+   - Git:
+     ```bash
+     uvx mcp-server-git --repository "C:/ruta/del/repo"
+     ```
+
+4. **Configurar `.env`**
+   ```env
+   OPENAI_API_KEY=sk-...
+   OPENAI_MODEL=gpt-4o-mini
+   WORKSPACE_ROOT=C:/Users/.../Redes
+   REPO_ROOT=C:/Users/.../Redes/MCP Host
+
+   # Credenciales Supabase
+   SUPABASE_URL=https://<tu-proyecto>.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=...
+   SUPABASE_ANON_KEY=...
+   ```
+
+5. **Editar `mcp_config.json`**  
+   Aquí defines qué servers MCP usar. Ejemplo:
+   ```json
+   {
+     "servers": [
+       {
+         "name": "SQLScout",
+         "transport": "stdio",
+         "command": "python",
+         "args": ["-B", "-m", "src.server_mcp"],
+         "cwd": "C:/Users/.../MCPLocal",
+         "env": {}
+       },
+       {
+         "name": "FS",
+         "transport": "stdio",
+         "command": "npx",
+         "args": ["-y", "@modelcontextprotocol/server-filesystem", "--root", "C:/Users/.../Redes"],
+         "cwd": ".",
+         "env": {}
+       },
+       {
+         "name": "Git",
+         "transport": "stdio",
+         "command": "uvx",
+         "args": ["mcp-server-git", "--repository", "C:/Users/.../Redes/MCP Host"],
+         "cwd": "."
+       },
+       {
+         "name": "Supabase",
+         "transport": "http",
+         "command": "python",
+         "args": ["supabaseAdminHelper.py"],
+         "cwd": "src/remoteMCP"
+       }
+     ]
+   }
+   ```
 
 ---
 
-## Requisitos
+## ▶ Uso
 
-- **Python 3.11+**
-- **Git** instalado (`git --version`)
-- **Node + npx** instalados (`node -v`, `npx -v`)
-- Cuenta en **Google AI Studio** y **API key** de Gemini (gratis).
-
----
-
-## Instalación
+Iniciar el chat host:
 
 ```bash
-# Crear y activar venv (Windows PowerShell)
-python -m venv .venv
-.\.venv\Scriptsctivate
-
-# Dependencias
-pip install -U google-genai mcp mcp-server-git python-dotenv rich
+python -m src.host
 ```
+
+Comandos disponibles:
+- `:tools [FS|Git|SQLScout|Supabase]` → listar herramientas de un server.  
+- `:load <file.sql>` → cargar esquema SQL.  
+- `:explain <SQL>` → plan de ejecución.  
+- `:diagnose <SQL>` → diagnóstico estático.  
+- `:optimize <SQL>` → sugerencias de optimización.  
+- `:apply <DDL>` → aplicar índice/cambio.  
+- `:quit` → salir.
+
+Ejemplos en lenguaje natural:
+- *“Crea un README.md con una descripción del proyecto y haz commit.”*  
+- *“Lista todos los usuarios registrados en Supabase.”*  
+- *“Actualiza el `user_metadata` del usuario con ID X para agregar su teléfono.”*  
+- *“Manda un reset de contraseña al usuario diego@example.com.”*  
 
 ---
-
-## Configuración (.env)
-
-Crea un archivo **`.env`** en la **raíz** del proyecto:
-
-```
-# Tu clave (elige una variable; si defines ambas, GOOGLE_API_KEY tiene prioridad)
-GOOGLE_API_KEY=tu_api_key
-# o
-GEMINI_API_KEY=tu_api_key
-
-# Modelo recomendado
-GEMINI_MODEL=gemini-2.5-flash
-```
-
-> **No** subas `.env` al repo (está en `.gitignore`).
-
----
-
-## Servidores MCP
-
-Archivo: **`app/config_servers.json`**
-
-```json
-{
-  "fs": {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "./work"]
-  },
-  "git": {
-    "command": ".\\.venv\\Scripts\\python.exe",
-    "args": ["-m", "mcp_server_git", "--repository", ".\\work"]
-  },
-  "local": {
-    "command": ".\\.venv\\Scripts\\python.exe",
-    "args": ["servers/my_local_srv.py"]
-  }
-}
-```
-
-> Crea la carpeta de trabajo e **inicializa Git** una vez:
-```bash
-mkdir work  # si no existe
-git init .\work
-```
-
----
-
-## Ejecución
-
-```bash
-# Desde la raíz del proyecto
-.\.venv\Scriptsctivate
-python -m app.client
-```
-
-Verás algo como:
-```
-Conectando 'fs' -> npx [...]
-✔ Conectado 'fs'
-Conectando 'git' -> python -m mcp_server_git --repository .\work
-✔ Conectado 'git'
-Conectando 'local' -> python servers/my_local_srv.py
-✔ Conectado 'local'
-
-Chat listo (Gemini). Comandos: /tools, /reset, /logs, /demo, quit
-```
-
----
-
-## Comandos disponibles en el chat
-
-- **`/tools`** — Lista todas las herramientas detectadas (`fs:*`, `git:*`, `local:*`).
-- **`/demo`** — Ejecuta un flujo ejemplo con Filesystem y Git (crear repo, README, add, commit).
-- **`/reset`** — Borra la memoria de conversación.
-- **`/logs`** — Muestra las últimas líneas del log MCP.
-
-Además, puedes conversar normalmente con el LLM para verificar **conexión** y **contexto**:
-```
-¿Quién fue Alan Turing?
-¿Y en qué fecha nació?
-```
-
----
-
-## Demostración FS + Git
-
-Dentro del chat, ejecuta:
-```
-/demo
-```
-
-El host le pide al LLM que use herramientas MCP para:
-1. **filesystem** → escribir `work/README.md` con una descripción.
-2. **git** → `init` (si hace falta), `add README.md`, `commit "init"`.
-
-Verifica:
-- Archivo creado: `work/README.md`
-- Repo Git en `work/.git/`
-- Entradas en `logs.jsonl` con `mcp_call` y `mcp_result`.
-
----
-
-## Servidor MCP local (CFG Tools)
-
-Archivo: **`servers/my_local_srv.py`**  
-Expone, por ejemplo:
-- `local:eliminate_epsilon` — Elimina producciones **ε** en una gramática libre de contexto.
-- `local:cyk_parse` — Aplica el algoritmo **CYK** a una oración según la gramática.
-
-Uso sugerido (desde el chat):
-```
-Usa local:eliminate_epsilon con:
-S -> A B | a
-A -> ε | a
-B -> b | A
-```
-
-o
-
-```
-Usa local:cyk_parse con la misma gramática y la oración: a b
-```
-
-> El host transforma estas peticiones en llamadas MCP y devuelve los resultados al LLM.
-
----
-
-## Memoria y Log
-
-- **Memoria de conversación**: `conversation.json` (se persiste entre ejecuciones).
-- **Log MCP**: `logs.jsonl` (cada línea es un JSON con `event`, `server`, `tool`, `args`, `result`, `ts`).
-
-Desde el chat, puedes ver un tail rápido con **`/logs`**.
-
----
-
-## Estructura del proyecto
-
-```
-.
-├── app/
-│   ├── __init__.py
-│   ├── client.py               # Host (Gemini + MCP)
-│   ├── config_servers.json     # Configuración de servers MCP
-│   ├── logger.py               # Log JSONL
-│   └── memory.py               # Persistencia de conversación
-├── servers/
-│   └── my_local_srv.py         # Servidor MCP local (CFG Tools)
-├── work/                       # Carpeta de trabajo para FS/Git (ignorada en git)
-├── .env                        # Claves/API/vars (ignorado)
-├── conversation.json           # Memoria (ignorado)
-├── logs.jsonl                  # Log MCP (ignorado)
-├── requirements.txt
-└── .gitignore
-```
-
----
-
-## Solución de problemas
-
-**1) `Connection closed` al conectar Filesystem**  
-- No usar `--allow`. El FS server acepta **rutas posicionales**: `@modelcontextprotocol/server-filesystem ./work`.
-
-**2) Git server: “not a valid Git repository”**  
-- Ejecuta una vez: `git init .\work`.
-
-**3) npx tarda o “se queda pegado” la primera vez**  
-- Es la descarga inicial. Puedes “precalentar” ejecutando manualmente:
-  - `npx -y @modelcontextprotocol/server-filesystem .\work` (Ctrl+C para salir)
-  - `python -m mcp_server_git --repository .\work` (Ctrl+C para salir)
-
-**4) Error de Gemini por schemas (`$schema`, `additional_properties`, etc.)**  
-- El host incluye un **sanitizador** que normaliza/elimina claves no soportadas.
-- Asegúrate de tener `google-genai` actualizado: `pip install -U google-genai`.
-
-**5) Variables de entorno no detectadas**  
-- Usa `.env` en la raíz o PowerShell:
-  - `$env:GEMINI_API_KEY="tu_key"`
-  - (opcional) `$env:GOOGLE_API_KEY="tu_key"`
-
-**6) OneDrive agrega latencia o bloqueos en `work`**  
-- Prueba con una ruta local corta (p. ej., `C:\dev\work`) y actualiza `app/config_servers.json`.
-
----
-
-¡Listo! Con esto puedes clonar, configurar y correr el proyecto sin sorpresas.

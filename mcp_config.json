@@ -1,0 +1,38 @@
+{
+  "servers": [
+    {
+      "name": "SQLScout",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-B", "-m", "src.server_mcp"],
+      "cwd": "C:/UVG/PROYECTO1/MCP_Local/SQL_MCP",
+      "env": {}
+    },
+    {
+      "name": "FS",
+      "transport": "stdio",
+      "command": "C:/Program Files/nodejs/npx.cmd",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "C:/UVG/PROYECTO1/MCP_Local"
+      ],
+      "cwd": ".",
+      "env": {}
+    },
+
+    {
+      "name": "Git",
+      "transport": "stdio",
+      "command": "py",
+      "args": [
+        "-3.11",
+        "-m",
+        "mcp_server_git",
+        "--repository",
+        "C:/UVG/PROYECTO1/MCP_Local"
+      ],
+      "cwd": "."
+    }
+  ]
+}
