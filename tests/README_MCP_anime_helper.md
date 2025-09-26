@@ -104,22 +104,21 @@ sigue a la sección *Workarounds*.
 ---
 
 ## Lenguaje natural (tool-calling automático)
-> El host expone **nombres seguros** `anime__*` para tool-calling, por lo que puedes usar prompts naturales.
 
-Ejemplos ya listos:
-- “¿En qué capítulo va **One Piece** y cuándo sale el siguiente? Muéstralo en tabla.”  
-  *(usa `airing_status`)*
-- “Búscame **3 animes** que se llamen **One Piece** y muéstrame **título, id y año**.”  
-  *(usa `search_media`)*
-- “Resuelve **‘Vinland Saga’** a sus IDs y dame la **ficha** (formato, estado, géneros, URL) en una tabla.”  
-  *(usa `resolve_title` → `media_details`)*
-- “Muéstrame el **calendario de emisiones** de la semana con fecha/hora.”  
-  *(usa `airing_calendar`)*
-- “Dame un **top 10** de animes **en tendencia**.”  
-  *(intenta `trending`; si AniList falla, ver *Workarounds*)*
+-search_media : Con ANIME_HELPER, busca tres animes que coincidan con “one piece” usando Jikan como fuente y muéstrame en una tabla el título, el id y el año.
 
-> Si quieres forzar Jikan en NL, dilo explícitamente en el prompt:  
-> “Usa **Jikan** como fuente para la búsqueda y ordénalos por **score**.”
+-resolve_title : Con ANIME_HELPER, resuelve el título “Vinland Saga” (ANIME) y muéstrame en una tabla los IDs canónicos de AniList y MAL.
+
+-media-details: Con ANIME_HELPER, dame la ficha de “Vinland Saga” en AniList (formato, estado, número de episodios, géneros y URL) presentada en tabla.
+
+-airing_status: Con ANIME_HELPER, dime en qué capítulo va “One Piece” y cuándo sale el próximo episodio, en una tabla clara.
+
+-trending: Con ANIME_HELPER, muéstrame el top cinco de animes en tendencia con título, formato y score en una tabla.
+
+-ask: Con ANIME_HELPER, dame tres recomendaciones similares a “Vinland Saga” e incluye título y enlace a su ficha en una tabla.
+
+-all-in-one: Con ANIME_HELPER: primero busca tres resultados de “one piece” usando Jikan y muéstrame título, id y año en tabla; luego resuelve “Vinland Saga” a sus IDs canónicos y con el id de AniList dame su ficha (formato, estado, géneros y URL) en tabla; después dime en qué capítulo va “One Piece” y cuándo sale el próximo episodio; finalmente muéstrame el top cinco de animes en tendencia con título, formato y score en tabla.
+
 
 ---
 
