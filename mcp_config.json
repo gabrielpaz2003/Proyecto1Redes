@@ -33,6 +33,29 @@
         "C:/UVG/PROYECTO1/MCP_Local"
       ],
       "cwd": "."
+    },
+    {
+      "name": "SiteLens",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:/UVG/PROYECTO1/MCP_Local/sitelens/dist/server.js",
+        "--roots",
+        "C:/UVG/PROYECTO1/MCP_Local/test/site"
+      ]
+    },
+    {
+      "name": "anime-helper",
+      "transport": "stdio",
+      "command": "py",
+      "args": ["-3.11", "-m", "anime_helper.server"],
+      "cwd": ".",
+      "env": {}
+    },
+    {
+      "name": "RemoteMCP",
+      "transport": "http",
+      "url": "https://remote-mcp-demo.gabouvg.workers.dev"
     }
   ]
 }

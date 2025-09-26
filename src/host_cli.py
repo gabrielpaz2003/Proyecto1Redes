@@ -4,7 +4,7 @@ from __future__ import annotations
 import json, uuid, typer
 from typing import Any, Dict, List, Set
 
-from .core.config import APP_TITLE, APP_VERSION, DEFAULT_SERVERS, settings
+from .core.config import APP_TITLE, APP_VERSION, DEFAULT_SERVERS
 from .core.openai_client import build_openai_client, OPENAI_TOOLS, handle_tool_call
 from .core.router import handle_colon_commands
 from .core.ui import (
@@ -16,10 +16,16 @@ from .mcp.client import MCPClient
 from .utils.memory import Memory
 from .utils.logger import JSONLLogger
 from .utils.jsonfmt import table_from_result
-from .services.supabase import import_remote_tools
+
+# Inyección dinámica de tools remotas
+from .services.sitelens import import_remote_tools as import_sitelens_tools
+from .services.anime_helper import import_remote_tools as import_anime_tools
+from .services.remotemcp import import_remote_tools as import_remote_mcp_tools
 
 app = typer.Typer(help="Host CLI con UI mejorada (Rich) + tool-calling hacia MCP")
+
 RAW_MODE = {"enabled": False}  # :raw alterna salida cruda del último tool
+
 
 @app.callback(invoke_without_command=True)
 def chat(server: str = typer.Option("SQLScout", help="Server MCP por defecto para atajos")):
@@ -41,24 +47,51 @@ def chat(server: str = typer.Option("SQLScout", help="Server MCP por defecto par
     print_help()
     print_servers_table(clients, ok, fail)
 
-    # Importar tools remotas desde Supabase (si está)
-    remote_supabase: Set[str] = import_remote_tools(clients, OPENAI_TOOLS)
+    # Importar tools remotas a OPENAI_TOOLS
 
-    # Prompt de sistema
+    # SiteLens
+    sitelens_names: Set[str] = set()
+    sitelens_map: Dict[str, str] = {}
+    try:
+        sitelens_names, sitelens_map = import_sitelens_tools(clients, OPENAI_TOOLS)
+    except Exception:
+        sitelens_names, sitelens_map = set(), {}
+
+    # AnimeHelper
+    anime_names: Set[str] = set()
+    anime_map: Dict[str, str] = {}
+    try:
+        anime_names, anime_map = import_anime_tools(clients, OPENAI_TOOLS)
+    except Exception:
+        anime_names, anime_map = set(), {}
+
+    # RemoteMCP (remoto por HTTP/WSS)
+    remote_names: Set[str] = set()
+    remote_map: Dict[str, str] = {}
+    try:
+        remote_names, remote_map = import_remote_mcp_tools(clients, OPENAI_TOOLS)
+    except Exception:
+        remote_names, remote_map = set(), {}
+
+    # Mensaje de sistema (recordatorio de cuándo usar cada server)
     system_prompt = (
-        "Eres un asistente con acceso a FS, Git y SQL (SQLScout). "
-        "Usa SIEMPRE herramientas cuando el usuario pida acciones.\n"
-        "FS: fs_create_dir, fs_write_text, fs_move, fs_list, fs_read_text, fs_trash_delete "
-        "(rutas relativas a WORKSPACE_ROOT). "
-        "Git: git_init_here, git_add_files, git_commit_msg, git_status_here, git_log_here "
-        "(en REPO_ROOT, nunca 'add all'). "
-        "SQL: sql_load, sql_explain, sql_diagnose, sql_optimize, sql_apply, sql_optimize_apply.\n"
-        "Supabase: usa tools remotas si están disponibles (create_user, send_magic_link, etc.).\n"
-        "Encadena herramientas cuando haga falta (crear archivo + commit, etc.)."
+        "Eres un asistente con acceso a FS, Git, SQL (SQLScout), SiteLens (auditoría HTML estático), "
+        "AnimeHelper (AniList/Jikan) y RemoteMCP (Cloudflare Workers). "
+        "Usa SIEMPRE herramientas cuando el usuario pida acciones o datos externos.\n"
+        "- FS: fs_create_dir, fs_write_text, fs_move, fs_list, fs_read_text, fs_trash_delete.\n"
+        "- Git: git_init_here, git_add_files, git_commit_msg, git_status_here, git_log_here.\n"
+        "- SQL: sql_load, sql_explain, sql_diagnose, sql_optimize, sql_apply, sql_optimize_apply.\n"
+        "- SiteLens: usa sitelens__aa_sitemap, sitelens__aa_scan_accessibility, sitelens__aa_link_check, "
+        "sitelens__aa_asset_budget, sitelens__aa_report.\n"
+        "- AnimeHelper: usa anime__ask para preguntas NL (\"¿en qué capítulo va One Piece?\", \"películas de esta temporada\"), "
+        "anime__search_media, anime__media_details, anime__trending, anime__season_top, anime__airing_status, anime__resolve_title.\n"
+        "- RemoteMCP: usa remote__remote_ping (ping), remote__remote_time (hora ISO), remote__remote_echo (eco de texto).\n"
+        "Formatea los resultados en tablas claras cuando sea tabulable."
     )
     memory.add("system", system_prompt)
 
     print_note("Escribe tu mensaje o un comando (:help).")
+
     last_tool_raw: str | None = None  # para :raw
 
     while True:
@@ -77,7 +110,7 @@ def chat(server: str = typer.Option("SQLScout", help="Server MCP por defecto par
             raw_state=RAW_MODE,
         )
         if handled:
-            logger.log({"event":"colon_cmd","cmd":user})
+            logger.log({"event": "colon_cmd", "cmd": user})
             if isinstance(extra, str) and extra.startswith("__RAW__"):
                 last_tool_raw = extra.removeprefix("__RAW__")
             if user in (":servers", ":tools"):
@@ -88,7 +121,8 @@ def chat(server: str = typer.Option("SQLScout", help="Server MCP por defecto par
         chat_user(user)
 
         # === Chat + Tool Calling ===
-        messages: List[Dict[str, Any]] = memory.dump() + [{"role":"user","content":user}]
+        messages: List[Dict[str, Any]] = memory.dump() + [{"role": "user", "content": user}]
+
         start_thinking("Pensando…")
         try:
             reply = client.chat.completions.create(
@@ -97,11 +131,11 @@ def chat(server: str = typer.Option("SQLScout", help="Server MCP por defecto par
                 tools=OPENAI_TOOLS,
                 tool_choice="auto",
                 temperature=0.3,
-                max_tokens=600
+                max_tokens=700
             )
         except Exception as e:
             stop_thinking()
-            print_error(str(e))
+            print_error(f"Error code: {getattr(e, 'status_code', 'unknown')} - {getattr(e, 'message', str(e))}")
             continue
 
         msg = reply.choices[0].message
@@ -117,7 +151,15 @@ def chat(server: str = typer.Option("SQLScout", help="Server MCP por defecto par
                     args = {}
 
                 try:
-                    mcp_resp = handle_tool_call(t_name, args, clients, remote_supabase)
+                    mcp_resp = handle_tool_call(
+                        t_name, args, clients,
+                        remote_sitelens_names=sitelens_names,
+                        remote_sitelens_map=sitelens_map,
+                        remote_anime_names=anime_names,
+                        remote_anime_map=anime_map,
+                        remote_remote_names=remote_names,
+                        remote_remote_map=remote_map,
+                    )
                     raw_payload = json.dumps(mcp_resp, ensure_ascii=False, indent=2)
                     last_tool_raw = raw_payload
 
@@ -141,10 +183,10 @@ def chat(server: str = typer.Option("SQLScout", help="Server MCP por defecto par
                 follow = client.chat.completions.create(
                     model=model,
                     messages=messages + [
-                        {"role":"assistant","content":msg.content or "", "tool_calls":[tc.__dict__ for tc in tool_calls]}
+                        {"role": "assistant", "content": msg.content or "", "tool_calls": [tc.__dict__ for tc in tool_calls]}
                     ] + tool_results_msgs,
                     temperature=0.2,
-                    max_tokens=600
+                    max_tokens=800
                 )
                 final_text = follow.choices[0].message.content or ""
             finally:
@@ -153,20 +195,28 @@ def chat(server: str = typer.Option("SQLScout", help="Server MCP por defecto par
             chat_assistant(final_text)
             memory.add("user", user)
             memory.add("assistant", final_text)
-            logger.log({"event":"chat+tools","user":user,"assistant":final_text,"raw":bool(RAW_MODE["enabled"])})
+            logger.log({
+                "event": "chat+tools",
+                "user": user,
+                "assistant": final_text,
+                "raw": bool(RAW_MODE["enabled"])
+            })
         else:
             stop_thinking()
             text = msg.content or ""
             chat_assistant(text)
             memory.add("user", user)
             memory.add("assistant", text)
-            logger.log({"event":"chat","user":user,"assistant":text})
+            logger.log({"event": "chat", "user": user, "assistant": text})
 
     for c in clients.values():
-        try: c.close()
-        except: pass
+        try:
+            c.close()
+        except Exception:
+            pass
 
     print_note("Chat finalizado.")
+
 
 if __name__ == "__main__":
     app()

@@ -7,7 +7,8 @@ from dotenv import load_dotenv
 
 APP_TITLE = "MCP Host • Consola"
 APP_VERSION = "1.0.0"
-DEFAULT_SERVERS = ["SQLScout", "FS", "Git", "Supabase"]
+
+DEFAULT_SERVERS = ["SQLScout", "FS", "Git", "SiteLens", "anime-helper", "RemoteMCP"]
 
 @dataclass
 class AppSettings:
@@ -18,13 +19,7 @@ class AppSettings:
     log_path: str = "history/chat_log.jsonl"
 
 def settings() -> AppSettings:
-    """
-    Carga variables desde .env y devuelve un objeto con atributos.
-    Evita tuplas para que otros módulos (logger, openai_client, etc.) puedan
-    acceder a .log_path, .openai_model, etc.
-    """
     load_dotenv()
-
     ws = os.getenv("WORKSPACE_ROOT")
     rp = os.getenv("REPO_ROOT")
     if not ws or not rp:
